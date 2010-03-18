@@ -2,19 +2,19 @@
    Reimplementation of sslh in C
 
 # Copyright (C) 2007-2008  Yves Rutschle
-# 
+#
 # This program is free software; you can redistribute it
 # and/or modify it under the terms of the GNU General Public
 # License as published by the Free Software Foundation; either
 # version 2 of the License, or (at your option) any later
 # version.
-# 
+#
 # This program is distributed in the hope that it will be
 # useful, but WITHOUT ANY WARRANTY; without even the implied
 # warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
 # PURPOSE.  See the GNU General Public License for more
 # details.
-# 
+#
 # The full text for the General Public License is here:
 # http://www.gnu.org/licenses/gpl.html
 
@@ -56,7 +56,7 @@ if (res == -1) {    \
 "\t\t-s [sshhost:]port -l [sslhost:]port [-P pidfile] [-v] [-V]\n\n" \
 "-v: verbose\n" \
 "-V: version\n" \
-"-p: address and port to listen on. default: 0.0.0.0:443\n" \
+"-p: address and port to listen on. default: :::443\n" \
 "-s: SSH address: where to connect an SSH connection. default: localhost:22\n" \
 "-l: SSL address: where to connect an SSL connection.\n" \
 "-P: PID file. Default: /var/run/sslh.pid\n" \
@@ -67,19 +67,19 @@ int verbose = 0; /* That's really quite global */
 /* Starts a listening socket on specified address.
    Returns file descriptor
    */
-int start_listen_socket(struct sockaddr *addr)
+int start_listen_socket(struct sockaddr_in6 *addr)
 {
-   struct sockaddr_in *saddr = (struct sockaddr_in*)addr;
+   struct sockaddr_in6 *saddr = (struct sockaddr_in6*)addr;
    int sockfd, res, reuse;
 
-   sockfd = socket(AF_INET, SOCK_STREAM, 0);
+   sockfd = socket(AF_INET6, SOCK_STREAM, 0);
    CHECK_RES_DIE(sockfd, "socket");
 
    reuse = 1;
    res = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char*)&reuse, sizeof(reuse));
    CHECK_RES_DIE(res, "setsockopt");
 
-   res = bind (sockfd, (struct sockaddr*)saddr, sizeof(*saddr));
+   res = bind (sockfd, (struct sockaddr_in6*)saddr, sizeof(*saddr));
    CHECK_RES_DIE(res, "bind");
 
    res = listen (sockfd, 5);
@@ -89,7 +89,7 @@ int start_listen_socket(struct sockaddr *addr)
 }
 
 
-/* 
+/*
  * moves data from one fd to other
  * returns 0 if incoming socket closed, size moved otherwise
  */
@@ -110,7 +110,7 @@ int fd2fd(int target, int from)
    return size;
 }
 
-/* shovels data from one fd to the other and vice-versa 
+/* shovels data from one fd to the other and vice-versa
    returns after one socket closed
  */
 int shovel(int fd1, int fd2)
@@ -123,7 +123,7 @@ int shovel(int fd1, int fd2)
       FD_SET(fd1, &fds);
       FD_SET(fd2, &fds);
 
-      res = select( 
+      res = select(
                       (fd1 > fd2 ? fd1 : fd2 ) + 1,
                       &fds,
                       NULL,
@@ -150,26 +150,26 @@ int shovel(int fd1, int fd2)
    }
 }
 
-/* returns a string that prints the IP and port of the sockaddr */
-char* sprintaddr(char* buf, size_t size, struct sockaddr* s)
+/* returns a string that prints the IP and port of the sockaddr_in6 */
+char* sprintaddr(char* buf, size_t size, struct sockaddr_in6* s)
 {
    char addr_str[1024];
 
-   inet_ntop(AF_INET, &((struct sockaddr_in*)s)->sin_addr, addr_str, sizeof(addr_str));
-   snprintf(buf, size, "%s:%d", addr_str, ntohs(((struct sockaddr_in*)s)->sin_port));
+   inet_ntop(AF_INET, &((struct sockaddr_in6*)s)->sin6_addr, addr_str, sizeof(addr_str));
+   snprintf(buf, size, "%s:%d", addr_str, ntohs(((struct sockaddr_in6*)s)->sin6_port));
    return buf;
 }
 
-/* turns a "hostname:port" string into a struct sockaddr;
+/* turns a "hostname:port" string into a struct sockaddr_in6;
 sock: socket address to which to copy the addr
 fullname: input string -- it gets clobbered
 */
-void resolve_name(struct sockaddr *sock, char* fullname) {
+void resolve_name(struct sockaddr_in6 *sock, char* fullname) {
    struct addrinfo *addr, hint;
    char *serv, *host;
    int res;
 
-   char *sep = strchr(fullname, ':');
+   char *sep = strrchr(fullname, ':');
 
    if (!sep) /* No separator: parameter is just a port */
    {
@@ -184,7 +184,7 @@ void resolve_name(struct sockaddr *sock, char* fullname) {
    }
 
    memset(&hint, 0, sizeof(hint));
-   hint.ai_family = PF_INET;
+   hint.ai_family = AF_UNSPEC;
    hint.ai_socktype = SOCK_STREAM;
 
    res = getaddrinfo(host, serv, &hint, &addr);
@@ -201,7 +201,7 @@ void resolve_name(struct sockaddr *sock, char* fullname) {
 /* syslogs who connected to where */
 void log_connection(int socket, char* target)
 {
-    struct sockaddr peeraddr;
+    struct sockaddr_in6 peeraddr;
     socklen_t size = sizeof(peeraddr);
     char buf[64];
     int res;
@@ -209,19 +209,19 @@ void log_connection(int socket, char* target)
     res = getpeername(socket, &peeraddr, &size);
     CHECK_RES_DIE(res, "getpeername");
 
-    syslog(LOG_INFO, "connection from %s forwarded to %s\n", 
+    syslog(LOG_INFO, "connection from %s forwarded to %s\n",
            sprintaddr(buf, sizeof(buf), &peeraddr), target);
 
 }
 
-/* 
+/*
  * Settings that depend on the command line. That's less global than verbose * :-)
  * They're set in main(), but also used in start_shoveler(), and it'd be heavy-handed
  * to pass it all as parameters
  */
 int timeout = 2;
-struct sockaddr addr_listen;
-struct sockaddr addr_ssl, addr_ssh;
+struct sockaddr_in6 addr_listen;
+struct sockaddr_in6 addr_ssl, addr_ssh;
 
 /* libwrap (tcpd): check the ssh connection is legal. This is necessary because
  * the actual sshd will only see a connection coming from localhost and can't
@@ -230,7 +230,7 @@ struct sockaddr addr_ssl, addr_ssh;
 void check_access_rights(int in_socket)
 {
 #ifdef LIBWRAP
-    struct sockaddr peeraddr;
+    struct sockaddr_in6 peeraddr;
     socklen_t size = sizeof(peeraddr);
     char addr_str[1024];
     struct hostent *host;
@@ -239,10 +239,10 @@ void check_access_rights(int in_socket)
 
     res = getpeername(in_socket, &peeraddr, &size);
     CHECK_RES_DIE(res, "getpeername");
-    inet_ntop(AF_INET, &((struct sockaddr_in*)&peeraddr)->sin_addr, addr_str, sizeof(addr_str));
+    inet_ntop(AF_INET6, &((struct sockaddr_in6*)&peeraddr)->sin6_addr, addr_str, sizeof(addr_str));
 
     addr.s_addr = inet_addr(addr_str);
-    host = gethostbyaddr((char *)&addr, sizeof(addr), AF_INET);
+    host = gethostbyaddr((char *)&addr, sizeof(addr), AF_INET6);
 
     if (!hosts_ctl("sshd", (host ? host->h_name : STRING_UNKNOWN), addr_str, STRING_UNKNOWN)) {
         if (verbose)
@@ -254,13 +254,13 @@ void check_access_rights(int in_socket)
 #endif
 }
 
-/* Child process that finds out what to connect to and proxies 
+/* Child process that finds out what to connect to and proxies
  */
 void start_shoveler(int in_socket)
 {
    fd_set fds;
    struct timeval tv;
-   struct sockaddr *saddr;
+   struct sockaddr_in6 *saddr;
    int res;
    int out_socket;
    char *target;
@@ -300,7 +300,7 @@ void start_shoveler(int in_socket)
 
    close(in_socket);
    close(out_socket);
-   
+
    if (verbose)
       fprintf(stderr, "connection closed down\n");
 
@@ -321,7 +321,7 @@ void setup_signals(void)
     CHECK_RES_DIE(res, "sigaction");
 }
 
-/* Open syslog connection with appropriate banner; 
+/* Open syslog connection with appropriate banner;
  * banner is made up of basename(bin_name)+"[pid]" */
 void setup_syslog(char* bin_name) {
     char *name1, *name2;
@@ -329,7 +329,7 @@ void setup_syslog(char* bin_name) {
     name1 = strdup(bin_name);
     asprintf(&name2, "%s[%d]", basename(name1), getpid());
     openlog(name2, LOG_CONS, LOG_AUTH);
-    free(name1); 
+    free(name1);
     /* Don't free name2, as openlog(3) uses it (at least in glibc) */
 }
 
@@ -371,9 +371,9 @@ void printsettings(void)
     char buf[64];
 
     fprintf(
-            stderr, 
+            stderr,
             "SSL addr: %s (after timeout %ds)\n",
-            sprintaddr(buf, sizeof(buf), &addr_ssl), 
+            sprintaddr(buf, sizeof(buf), &addr_ssl),
             timeout
            );
     fprintf(stderr, "SSH addr: %s\n", sprintaddr(buf, sizeof(buf), &addr_ssh));
@@ -391,7 +391,7 @@ int main(int argc, char *argv[])
 
    /* Init defaults */
    char *user_name = "nobody";
-   char listen_str[] = "0.0.0.0:443";
+   char listen_str[] = ":::443";
    char ssl_str[] = "localhost:442";
    char ssh_str[] = "localhost:22";
    char *pid_file = "/var/run/sslh.pid";
