@@ -155,11 +155,11 @@ int shovel(int fd1, int fd2)
 }
 
 /* returns a string that prints the IP and port of the sockaddr_in6 */
-char* sprintaddr(char* buf, size_t size, struct sockaddr_in6* s)
+char* sprintaddr(char* buf, size_t size, struct sockaddr_storage* s)
 {
    char addr_str[1024];
 
-   inet_ntop(AF_INET, &((struct sockaddr_in6*)s)->sin6_addr, addr_str, sizeof(addr_str));
+   inet_ntop(AF_INET6, &((struct sockaddr_in6*)s)->sin6_addr, addr_str, sizeof(addr_str));
    snprintf(buf, size, "%s:%d", addr_str, ntohs(((struct sockaddr_in6*)s)->sin6_port));
    return buf;
 }
@@ -205,12 +205,12 @@ void resolve_name(struct sockaddr_in6 *sock, char* fullname) {
 /* syslogs who connected to where */
 void log_connection(int socket, char* target)
 {
-    struct sockaddr_in6 peeraddr;
+    struct sockaddr_storage peeraddr;
     socklen_t size = sizeof(peeraddr);
     char buf[64];
     int res;
 
-    res = getpeername(socket, &peeraddr, &size);
+    res = getpeername(socket, (struct sockaddr*)(&peeraddr), &size);
     CHECK_RES_DIE(res, "getpeername");
 
     syslog(LOG_INFO, "connection from %s forwarded to %s\n",
@@ -294,7 +294,7 @@ void start_shoveler(int in_socket)
    log_connection(in_socket, target);
 
    /* Connect the target socket */
-   out_socket = socket(AF_INET, SOCK_STREAM, 0);
+   out_socket = socket(AF_INET6, SOCK_STREAM, 0);
    res = connect(out_socket, saddr, sizeof(addr_ssl));
    CHECK_RES_DIE(res, "connect");
    if (verbose)
@@ -377,11 +377,11 @@ void printsettings(void)
     fprintf(
             stderr,
             "SSL addr: %s (after timeout %ds)\n",
-            sprintaddr(buf, sizeof(buf), &addr_ssl),
+            sprintaddr(buf, sizeof(buf), (struct sockaddr_storage*)&addr_ssl),
             timeout
            );
-    fprintf(stderr, "SSH addr: %s\n", sprintaddr(buf, sizeof(buf), &addr_ssh));
-    fprintf(stderr, "listening on %s\n", sprintaddr(buf, sizeof(buf), &addr_listen));
+    fprintf(stderr, "SSH addr: %s\n", sprintaddr(buf, sizeof(buf), (struct sockaddr_storage*)&addr_ssh));
+    fprintf(stderr, "listening on %s\n", sprintaddr(buf, sizeof(buf), (struct sockaddr_storage*)&addr_listen));
 }
 
 int main(int argc, char *argv[])
