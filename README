@@ -1,5 +1,9 @@
 ===== sslh -- A ssl/ssh multiplexer. =====
 
+===== WARNING =====
+This project is no longer needed as the upstream version now support IPv6
+
+
 sslh lets one accept both HTTPS and SSH connections on the
 same port. It makes it possible to connect to an SSH server
 on port 443 (e.g. from inside a corporate firewall) while
